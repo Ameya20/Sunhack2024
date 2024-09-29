@@ -21,13 +21,11 @@ openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 # Streamlit UI setup
 st.title("EduSummarizer")
 
-# Create tabs for Home and Existing Files
-tabs = st.tabs(["Home", "Existing Files"])
+# Tabs for Home and Existing Files
+tab1, tab2 = st.tabs(["Home", "Existing Files"])
 
-# Home Tab: Audio recording and summarization
-with tabs[0]:
-    st.header("Home")
-
+# Home Tab (Audio Recording & Summarization)
+with tab1:
     # Audio recorder instance
     wav_audio_data = st_audiorec()
 
@@ -75,30 +73,56 @@ with tabs[0]:
             except Exception as e:
                 st.error(f"An error occurred during summarization: {str(e)}")
 
-# Existing Files Tab: List all stored files and enable viewing and deleting files
-with tabs[1]:
-    st.header("Existing Files")
+# Existing Files Tab (File Listing & Summary with Chat)
+with tab2:
+    st.write("Existing Files:")
+    files = summaries_collection.find().sort("created_at", pymongo.DESCENDING)
 
-    # Display existing filenames sorted from recent to old
-    st.write("Stored Summaries:")
-    files = summaries_collection.find().sort("created_at", pymongo.DESCENDING)  # Sort by created_at field
+    if "show_file" not in st.session_state:
+        st.session_state.show_file = None
 
-    if summaries_collection.count_documents({}) == 0:
-        st.write("No records found.")
-    else:
-        for file in files:
-            col1, col2 = st.columns([3, 2])
+    # Reset the query input when a new file is selected
+    if "user_query" not in st.session_state:
+        st.session_state.user_query = ""
 
-            with col1:
-                # Show summary on button click
-                if st.button(file['filename'], key=f"show_summary_{file['filename']}"):
-                    # Show existing summary
-                    st.write(f"Filename: {file['filename']}")
-                    st.write(f"Summary: {file['summary']}")
+    for file in files:
+        col1, col2 = st.columns([3, 1])
 
-            with col2:
-                # Delete functionality
-                if st.button("Delete", key=f"delete_{file['filename']}"):
-                    # Delete file from MongoDB
-                    summaries_collection.delete_one({"filename": file['filename']})
-                    st.success(f"File {file['filename']} deleted successfully")
+        with col1:
+            # Display filename and summary in an expander
+            if st.button(file['filename'], key=f"show_summary_{file['filename']}"):
+                st.session_state.show_file = file  # Store the selected file in session state
+                st.session_state.user_query = ""  # Reset the question input
+
+        with col2:
+            # Delete functionality
+            if st.button("Delete", key=f"delete_{file['filename']}"):
+                summaries_collection.delete_one({"filename": file['filename']})
+                st.success(f"File {file['filename']} deleted successfully")
+                st.experimental_rerun()  # Refresh the app
+
+    # Display summary and chat when a file is selected
+    if st.session_state.show_file:
+        file = st.session_state.show_file
+        
+        # Always expand the expander when a file is selected
+        with st.expander(f"Summary and Q&A for {file['filename']}", expanded=True):
+            st.write(f"Summary: {file['summary']}")
+
+            # Chat feature
+            user_query = st.text_input("Ask a question:", value=st.session_state.user_query, key="user_query")
+            if st.button("Ask", key="ask_button"):
+                if user_query:
+                    # Send query + summary to OpenAI
+                    prompt = f"{file['summary']}\nUser question: {user_query}\nAnswer:"
+                    answer_response = openai_client.completions.create(
+                        model="gpt-3.5-turbo-instruct",
+                        prompt=prompt,
+                        max_tokens=150
+                    )
+                    answer_text = answer_response.choices[0].text.strip()
+
+                    # Display the answer
+                    st.write("Answer:", answer_text)
+                else:
+                    st.error("Please enter a question.")
