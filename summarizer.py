@@ -4,87 +4,87 @@ from openai import OpenAI
 from st_audiorec import st_audiorec
 import os
 from dotenv import load_dotenv
+import time
 
 # Load the .env file
 load_dotenv()
 
-
 # MongoDB setup
-client = pymongo.MongoClient("mongodb://localhost:27017/")
-db = client["audioTranscriptions"]
-transcriptions_collection = db["transcriptions"]
+mongo_uri = os.getenv("MONGO_URI")
+client = pymongo.MongoClient(mongo_uri)
+db = client["edusummarize"]
+summaries_collection = db["edusummarize"]
 
 # OpenAI setup
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # Streamlit UI setup
-st.title("Audio Recording and Transcription")
+st.title("Audio Recording and Summarization")
 
 # Audio recorder instance
 wav_audio_data = st_audiorec()
 
-# Check if audio data is recorded
+# Default filename with a random number
 if wav_audio_data is not None:
+    default_filename = f"file_{int(time.time())}"  # Use the current time as a random number
+    st.write("Default Filename:", default_filename)
+    audio_filename = st.text_input("Enter filename:", default_filename)
+
     st.audio(wav_audio_data, format='audio/wav')
     st.write("Audio recorded successfully!")
 
     # Save the audio data to a file
-    audio_filename = "recorded_audio.wav"
-    with open(audio_filename, "wb") as f:
+    audio_file_path = f"{audio_filename}.wav"
+    with open(audio_file_path, "wb") as f:
         f.write(wav_audio_data)
 
-    # Transcription logic using OpenAI Whisper
-    if st.button("Transcribe Audio"):
+    # Summarization logic using OpenAI Whisper
+    if st.button("Summarize Audio"):
         try:
-            with open(audio_filename, "rb") as audio_file:
+            with open(audio_file_path, "rb") as audio_file:
                 response = openai_client.audio.transcriptions.create(
                     model="whisper-1",
                     file=audio_file
                 )
             transcription_text = response.text
 
-            st.write("Transcription: ", transcription_text)
-
-            # Store transcript in MongoDB
-            transcriptions_collection.insert_one({
-                audio_filename: {
-                    "transcript": transcription_text
-                }
-            })
-
-            st.write("Transcription stored in MongoDB!")
-        except Exception as e:
-            st.error(f"An error occurred during transcription: {str(e)}")
-
-# Q&A Section (simplified for now)
-st.write("Ask a Question: ")
-question = st.text_input("Enter your question about the audio transcript")
-
-if st.button("Ask"):
-    # Retrieve the latest transcription from MongoDB
-    latest_transcription = transcriptions_collection.find_one(sort=[('_id', -1)])
-
-    if latest_transcription:
-        transcription_text = latest_transcription[audio_filename]["transcript"]
-
-        # Use OpenAI to answer the question
-        prompt = f"""
-        You are given the following transcription:
-        {transcription_text}
-
-        Answer the following question:
-        {question}
-        """
-
-        try:
-            response = openai_client.completions.create(
+            # Summarization
+            summary_response = openai_client.completions.create(
                 model="gpt-3.5-turbo-instruct",
-                prompt=prompt,
+                prompt=f"Summarize the following transcription:\n{transcription_text}",
                 max_tokens=200
             )
-            answer = response.choices[0].text.strip()
-            st.write("Answer: ", answer)
+            summary_text = summary_response.choices[0].text.strip()
+
+            # Store summary in MongoDB
+            summaries_collection.update_one(
+                {"filename": audio_filename},
+                {"$set": {"summary": summary_text, "pinecone_id": ""}},
+                upsert=True  # Create if not exists
+            )
+
+            st.write("Summary: ", summary_text)
+            st.write("Summary stored in MongoDB!")
+
         except Exception as e:
-            st.error(f"An error occurred while generating the answer: {str(e)}")
-    else:
-        st.write("No transcription found. Please transcribe an audio file first.")
+            st.error(f"An error occurred during summarization: {str(e)}")
+
+# Display existing filenames
+st.write("Existing Files:")
+files = summaries_collection.find()
+for file in files:
+    # Display only the filenames
+    if st.button(file['filename']):
+        # Show summary for the clicked file
+        st.write(f"Filename: {file['filename']}")
+        st.write(f"Summary: {file['summary']}")
+
+        # Rename functionality
+        new_filename = st.text_input("Rename file:", value=file['filename'])
+        if st.button("Rename"):
+            # Update filename in MongoDB
+            summaries_collection.update_one(
+                {"filename": file['filename']},
+                {"$set": {"filename": new_filename}}
+            )
+            st.success(f"File renamed to: {new_filename}")
