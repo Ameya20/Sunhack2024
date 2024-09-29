@@ -99,7 +99,6 @@ with tab2:
             if st.button("Delete", key=f"delete_{file['filename']}"):
                 summaries_collection.delete_one({"filename": file['filename']})
                 st.success(f"File {file['filename']} deleted successfully")
-                st.experimental_rerun()  # Refresh the app
 
     # Display summary and chat when a file is selected
     if st.session_state.show_file:
