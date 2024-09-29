@@ -19,7 +19,7 @@ summaries_collection = db["edusummarize"]
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # Streamlit UI setup
-st.title("Audio Recording and Summarization")
+st.title("EduSummarizer")
 
 # Audio recorder instance
 wav_audio_data = st_audiorec()
@@ -64,7 +64,6 @@ if wav_audio_data is not None:
             )
 
             st.write("Summary: ", summary_text)
-            st.write("Summary stored in MongoDB!")
 
         except Exception as e:
             st.error(f"An error occurred during summarization: {str(e)}")
