@@ -2,7 +2,7 @@ import pymongo
 import os
 from dotenv import load_dotenv
 
-# Load the .env file
+# Load environment variables
 load_dotenv()
 
 # MongoDB setup
